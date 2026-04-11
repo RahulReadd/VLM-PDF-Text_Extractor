@@ -1,0 +1,22 @@
+# Core — install transformers from source for Qwen3-VL support
+# pip install git+https://github.com/huggingface/transformers
+accelerate
+bitsandbytes
+torch
+pillow
+
+# Qwen-VL image/video preprocessing utilities
+qwen-vl-utils[decord]
+
+# Dataset loading
+datasets
+
+# Evaluation & visualization
+matplotlib
+pandas
+
+# PDF handling (Module 1, Phase 1)
+PyMuPDF
+
+# Gradio UI (bonus, Phase 5)
+# gradio
