@@ -1,7 +1,8 @@
-"""Adapter for InternVL family (2.5-2B, 3.5-8B, etc.).
+"""Adapter for Mistral Pixtral-12B (via LlavaForConditionalGeneration).
 
-Supports both small (2B, FP16) and larger (8B, 4-bit quantized) variants.
-Uses AutoModelForImageTextToText + AutoProcessor (HF unified API).
+Pixtral processes images at their native resolution, making it strong on long
+receipts and wide tables.  The 12B parameter count requires 4-bit quantization
+to fit within a T4's 15 GB VRAM budget.
 
 Requires: pip install git+https://github.com/huggingface/transformers bitsandbytes
 """
@@ -12,10 +13,10 @@ from PIL import Image
 from .base import ModelConfig, VLMAdapter
 
 
-class InternVLAdapter(VLMAdapter):
+class PixtralAdapter(VLMAdapter):
 
     def load(self) -> None:
-        from transformers import AutoModelForImageTextToText, AutoProcessor
+        from transformers import LlavaForConditionalGeneration, AutoProcessor
 
         load_kwargs: dict = dict(
             torch_dtype=self.config.dtype,
@@ -30,28 +31,29 @@ class InternVLAdapter(VLMAdapter):
                 bnb_4bit_quant_type="nf4",
             )
 
-        self.model = AutoModelForImageTextToText.from_pretrained(
+        self.model = LlavaForConditionalGeneration.from_pretrained(
             self.config.model_id, **load_kwargs
         )
         self.processor = AutoProcessor.from_pretrained(self.config.model_id)
 
     def run_inference(self, image: Image.Image, prompt: str, max_new_tokens: int = 1024) -> str:
+        # Pixtral uses the Llava-style chat template
         messages = [
             {
                 "role": "user",
                 "content": [
-                    {"type": "image", "image": image},
+                    {"type": "image"},
                     {"type": "text", "text": prompt},
                 ],
             }
         ]
 
-        inputs = self.processor.apply_chat_template(
-            messages,
-            add_generation_prompt=True,
-            tokenize=True,
-            return_dict=True,
-            return_tensors="pt",
+        text_input = self.processor.apply_chat_template(
+            messages, add_generation_prompt=True
+        )
+
+        inputs = self.processor(
+            text=text_input, images=[image], return_tensors="pt"
         ).to(self.model.device)
 
         with torch.no_grad():

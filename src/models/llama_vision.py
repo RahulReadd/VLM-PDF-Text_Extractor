@@ -1,9 +1,11 @@
-"""Adapter for InternVL family (2.5-2B, 3.5-8B, etc.).
+"""Adapter for Meta Llama-3.2 Vision family (11B).
 
-Supports both small (2B, FP16) and larger (8B, 4-bit quantized) variants.
-Uses AutoModelForImageTextToText + AutoProcessor (HF unified API).
+Uses MllamaForConditionalGeneration + AutoProcessor.  The 11B model requires
+4-bit quantization to fit within a T4's 15 GB VRAM budget.
 
 Requires: pip install git+https://github.com/huggingface/transformers bitsandbytes
+Note: Access to meta-llama models requires accepting the Llama 3.2 Community
+License at https://huggingface.co/meta-llama/Llama-3.2-11B-Vision-Instruct.
 """
 
 import torch
@@ -12,10 +14,10 @@ from PIL import Image
 from .base import ModelConfig, VLMAdapter
 
 
-class InternVLAdapter(VLMAdapter):
+class LlamaVisionAdapter(VLMAdapter):
 
     def load(self) -> None:
-        from transformers import AutoModelForImageTextToText, AutoProcessor
+        from transformers import MllamaForConditionalGeneration, AutoProcessor
 
         load_kwargs: dict = dict(
             torch_dtype=self.config.dtype,
@@ -30,7 +32,7 @@ class InternVLAdapter(VLMAdapter):
                 bnb_4bit_quant_type="nf4",
             )
 
-        self.model = AutoModelForImageTextToText.from_pretrained(
+        self.model = MllamaForConditionalGeneration.from_pretrained(
             self.config.model_id, **load_kwargs
         )
         self.processor = AutoProcessor.from_pretrained(self.config.model_id)
@@ -40,18 +42,18 @@ class InternVLAdapter(VLMAdapter):
             {
                 "role": "user",
                 "content": [
-                    {"type": "image", "image": image},
+                    {"type": "image"},
                     {"type": "text", "text": prompt},
                 ],
             }
         ]
 
-        inputs = self.processor.apply_chat_template(
-            messages,
-            add_generation_prompt=True,
-            tokenize=True,
-            return_dict=True,
-            return_tensors="pt",
+        text_input = self.processor.apply_chat_template(
+            messages, add_generation_prompt=True
+        )
+
+        inputs = self.processor(
+            images=image, text=text_input, return_tensors="pt"
         ).to(self.model.device)
 
         with torch.no_grad():

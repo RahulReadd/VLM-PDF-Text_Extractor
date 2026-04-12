@@ -117,25 +117,41 @@ def benchmark_single_model(
     for i, (img, prompt) in enumerate(zip(images, prompts)):
         print(f"  Image {i+1}/{len(images)}: ", end="", flush=True)
 
-        t1 = time.time()
-        raw_output = adapter.run_inference(img, prompt, max_new_tokens=max_new_tokens)
-        infer_time = time.time() - t1
+        try:
+            t1 = time.time()
+            raw_output = adapter.run_inference(img, prompt, max_new_tokens=max_new_tokens)
+            infer_time = time.time() - t1
 
-        vram_now = adapter.get_vram_usage()
-        parsed, is_valid = _try_parse_json(raw_output)
+            vram_now = adapter.get_vram_usage()
+            parsed, is_valid = _try_parse_json(raw_output)
 
-        result = BenchmarkResult(
-            model_id=config.model_id,
-            vram_allocated_mb=vram_now[0],
-            vram_reserved_mb=vram_now[1],
-            load_time_s=report.load_time_s,
-            inference_time_s=round(infer_time, 2),
-            output_text=raw_output,
-            output_json=parsed,
-            json_valid=is_valid,
-        )
-        report.per_image_results.append(result)
-        print(f"{infer_time:.1f}s | JSON valid: {is_valid} | VRAM: {vram_now[0]:.0f} MB")
+            result = BenchmarkResult(
+                model_id=config.model_id,
+                vram_allocated_mb=vram_now[0],
+                vram_reserved_mb=vram_now[1],
+                load_time_s=report.load_time_s,
+                inference_time_s=round(infer_time, 2),
+                output_text=raw_output,
+                output_json=parsed,
+                json_valid=is_valid,
+            )
+            report.per_image_results.append(result)
+            print(f"{infer_time:.1f}s | JSON valid: {is_valid} | VRAM: {vram_now[0]:.0f} MB")
+
+        except RuntimeError as e:
+            if "CUDA" in str(e):
+                print(f"CUDA ERROR — skipping remaining images for {model_name}")
+                print(f"  Error: {e}")
+                break
+            print(f"ERROR — {e} (skipping image)")
+            result = BenchmarkResult(
+                model_id=config.model_id,
+                vram_allocated_mb=0, vram_reserved_mb=0,
+                load_time_s=report.load_time_s,
+                inference_time_s=0, output_text=f"ERROR: {e}",
+                output_json=None, json_valid=False,
+            )
+            report.per_image_results.append(result)
 
     # Unload to free VRAM for the next model
     adapter.unload()

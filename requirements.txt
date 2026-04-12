@@ -1,4 +1,4 @@
-# Core — install transformers from source for Qwen3-VL support
+# Core — install transformers from source for latest model support
 # pip install git+https://github.com/huggingface/transformers
 accelerate
 bitsandbytes
@@ -20,3 +20,11 @@ PyMuPDF
 
 # Gradio UI (bonus, Phase 5)
 # gradio
+
+# NOTE for Colab install cell:
+# !pip install -q git+https://github.com/huggingface/transformers
+# !pip install -q accelerate bitsandbytes qwen-vl-utils[decord] datasets pillow matplotlib
+#
+# Llama-3.2-11B-Vision requires HuggingFace login:
+#   !huggingface-cli login --token YOUR_TOKEN
+# and accepting the license at https://huggingface.co/meta-llama/Llama-3.2-11B-Vision-Instruct
