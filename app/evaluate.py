@@ -49,8 +49,15 @@ def token_f1(pred: str, gold: str) -> float:
 
 
 def parse_cord_ground_truth(gt_raw) -> dict:
-    """Convert CORD nested ground truth into a flat comparable dict."""
-    gt = json.loads(gt_raw) if isinstance(gt_raw, str) else gt_raw
+    """Convert CORD nested ground truth into a flat comparable dict.
+
+    CORD ground_truth can be double-encoded (JSON string inside JSON string)
+    and sub-keys like 'sub_total' / 'total' may be wrapped in a list.
+    """
+    gt = gt_raw
+    # Unwrap string encoding (possibly double-encoded)
+    while isinstance(gt, str):
+        gt = json.loads(gt)
 
     if "gt_parse" in gt:
         gt = gt["gt_parse"]
@@ -65,22 +72,44 @@ def parse_cord_ground_truth(gt_raw) -> dict:
         "changeprice": None,
     }
 
-    if "menu" in gt:
-        for item in gt["menu"]:
-            result["menu_items"].append({
-                "nm": item.get("nm", None),
-                "cnt": item.get("cnt", None),
-                "price": item.get("price", None),
-            })
+    def _collect_menu_items(menu_node, out: list):
+        """Recursively extract menu items from CORD's variable menu structure.
 
-    if "sub_total" in gt:
-        st = gt["sub_total"]
+        menu_node can be:
+          - a list of dicts  →  [{"nm": ..., "price": ...}, ...]
+          - a single dict    →  {"nm": ..., "price": ..., "sub": {...}}
+          - a list of lists  →  rare, but handled
+        Nested 'sub' items are flattened into the same list.
+        """
+        if isinstance(menu_node, dict):
+            if "nm" in menu_node or "price" in menu_node:
+                out.append({
+                    "nm": menu_node.get("nm", None),
+                    "cnt": menu_node.get("cnt", None),
+                    "price": menu_node.get("price", None),
+                })
+            if "sub" in menu_node:
+                _collect_menu_items(menu_node["sub"], out)
+        elif isinstance(menu_node, list):
+            for item in menu_node:
+                _collect_menu_items(item, out)
+
+    if "menu" in gt:
+        _collect_menu_items(gt["menu"], result["menu_items"])
+
+    # CORD sometimes wraps sub_total / total in a single-element list
+    st = gt.get("sub_total")
+    if isinstance(st, list):
+        st = st[0] if st else {}
+    if isinstance(st, dict):
         result["subtotal_price"] = st.get("subtotal_price", None)
         result["tax_price"] = st.get("tax_price", None)
         result["discount_price"] = st.get("discount_price", None)
 
-    if "total" in gt:
-        t = gt["total"]
+    t = gt.get("total")
+    if isinstance(t, list):
+        t = t[0] if t else {}
+    if isinstance(t, dict):
         result["total_price"] = t.get("total_price", None)
         result["cashprice"] = t.get("cashprice", None)
         result["changeprice"] = t.get("changeprice", None)
