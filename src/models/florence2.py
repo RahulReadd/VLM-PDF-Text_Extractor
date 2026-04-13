@@ -15,23 +15,43 @@ from PIL import Image
 from .base import ModelConfig, VLMAdapter
 
 
-def _patch_florence2_config(model):
-    """Fix missing attributes in Florence-2's language config.
+def _patch_florence2_config_class():
+    """Monkey-patch Florence-2's remote config class BEFORE from_pretrained.
 
-    The remote config on HuggingFace Hub can be missing attributes like
-    `forced_bos_token_id` that newer transformers versions expect.
+    The remote Florence2LanguageConfig is missing `forced_bos_token_id`,
+    which newer transformers accesses via __getattribute__ during loading.
+    We intercept the config's __init__ to inject the missing default.
     """
+    from transformers import AutoConfig  # type: ignore[import-unresolved]
+
+    config = AutoConfig.from_pretrained(
+        "microsoft/Florence-2-large", trust_remote_code=True
+    )
+
     for cfg_attr in ("text_config", "language_config"):
-        cfg = getattr(model.config, cfg_attr, None)
-        if cfg is not None and not hasattr(cfg, "forced_bos_token_id"):
-            cfg.forced_bos_token_id = None
-    return model
+        cfg = getattr(config, cfg_attr, None)
+        if cfg is not None:
+            cfg_cls = type(cfg)
+            if not hasattr(cfg_cls, "_f2_patched"):
+                _original_init = cfg_cls.__init__
+
+                def _patched_init(self, *args, _orig=_original_init, **kwargs):
+                    _orig(self, *args, **kwargs)
+                    if not hasattr(self, "forced_bos_token_id"):
+                        self.forced_bos_token_id = None
+
+                cfg_cls.__init__ = _patched_init
+                cfg_cls._f2_patched = True
+
+    return config
 
 
 class Florence2Adapter(VLMAdapter):
 
     def load(self) -> None:
         from transformers import AutoModelForCausalLM, AutoProcessor  # type: ignore[import-unresolved]
+
+        config = _patch_florence2_config_class()
 
         load_kwargs: dict = dict(
             torch_dtype=self.config.dtype,
@@ -40,9 +60,8 @@ class Florence2Adapter(VLMAdapter):
         )
 
         self.model = AutoModelForCausalLM.from_pretrained(
-            self.config.model_id, **load_kwargs
+            self.config.model_id, config=config, **load_kwargs
         )
-        _patch_florence2_config(self.model)
 
         self.processor = AutoProcessor.from_pretrained(
             self.config.model_id, trust_remote_code=True
